@@ -7,7 +7,7 @@
 #       - time stamp
 #       - salida csv por cámara cada 15'
 #       - 
-
+# Con zona pre-seteada y tiempo de ejecución
 ##################################################################################################
 
 from termcolor import colored
@@ -179,14 +179,20 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
 
     # Drawing initial ROI\s
     roi_coordinates = None
-    roi_margin_lower = None
-    roi_margin_upper = None
+    #roi_margin_lower = None
+    #roi_margin_upper = None
     for path, img, im0s, vid_cap in dataset:
-        roi = PolylineDrawing(im0s, 'first', flip_roi_axis, margin)
-        roi_coordinates = roi.coordinates
-        roi_margin_lower = roi.margin_lower
-        roi_margin_upper = roi.margin_upper
+        #roi = PolylineDrawing(im0s, 'first', flip_roi_axis, margin)
+        #roi_coordinates = roi.coordinates
+        #roi_margin_lower = roi.margin_lower
+        #roi_margin_upper = roi.margin_upper
+        #roi_coordinates = [(80,154),(410,271)] 
         break
+
+    ###########################################################################
+    #ZONA PREDEFINIDA
+    roi_coordinates = [(80,154),(410,271)] 
+    ###########################################################################
 
     # Trackable object collection
     trackableObjects = {}
@@ -195,7 +201,7 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
     #--------------
     #Agregado CSV
     #--------------
-    count = dict()
+    #count = dict()
     #--------------
 
     # Start Inference
@@ -295,7 +301,7 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                                         counter[3] +=1 #Out
                                         to.counted = True
                                                                    
-                                        count[counter[3]]=[str('Out'),str(source)]
+                                        #count[counter[3]]=[str('Out'),str(source)]
                                         #count[counter[3]]=[str('Out'), str(source), str(time.strftime('%H:%M:%S', time.localtime()))]                                        
 
                                 elif any(center[1] < coord for coord in y_circle_roi) \
@@ -308,7 +314,7 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                                         counter[2] +=1
                                         to.counted = True
                         
-                                        count[counter[2]]=[str('In'),str(source)]
+                                        #count[counter[2]]=[str('In'),str(source)]
                                         #count[counter[2]]=[str('In'),str(source), str(time.strftime('%H:%M:%S', time.localtime()))]
 
                         
@@ -359,7 +365,7 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
 
 
             # Showcase results
-            if not view_frame:
+            if view_frame:
                 cv2.imshow(p, im0)
                 if cv2.waitKey(1) == ord('q'):
                     raise StopIteration
@@ -389,7 +395,7 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
     print("Out: ", counter[3])
 
     #SAVE csv
-    exp_results(count)
+    #exp_results(count)
 
     point_config_dict = {'ID': '',
                          'Lina': '',
