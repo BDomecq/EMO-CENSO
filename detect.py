@@ -366,7 +366,21 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                     vid_writer.write(im0)
 
     execution_time = time.time() - t0
+
     flow_dict['Execution Time [s]'] = str(execution_time)
+
+    point_dict = {'ID': '',
+                  'Line': '',
+                  'Station': '',
+                  'Windpass': '',
+                  'Direction': '',
+                  'Is Access': ''}
+
+    run_dict = {'Source': source,
+                'Agnostic NMS': agnostic_nms,
+                'Detection Threshold': threshold,
+                'IOU Overlap': iou_threshold,
+                'roi_coordinates': roi_coordinates}
 
     point_dict = {'ID': '',
                   'Line': '',
@@ -462,6 +476,5 @@ if __name__ == '__main__':
                 agnostic_nms=opt.agnostic_nms, augment=opt.augment)
         except Exception as exp:
             frame_failure += 1
-            print(exp)
             pass
 
