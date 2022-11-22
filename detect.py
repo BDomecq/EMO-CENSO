@@ -382,19 +382,6 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                 'IOU Overlap': iou_threshold,
                 'roi_coordinates': roi_coordinates}
 
-    point_dict = {'ID': '',
-                  'Line': '',
-                  'Station': '',
-                  'Windpass': '',
-                  'Direction': '',
-                  'Is Access': ''}
-
-    run_dict = {'Source': source,
-                'Agnostic NMS': agnostic_nms,
-                'Detection Threshold': threshold,
-                'IOU Overlap': iou_threshold,
-                'roi_coordinates': roi_coordinates}
-
     point_df = pd.DataFrame(point_dict)
     flow_df = pd.DataFrame(flow_dict)
     run_df = pd.DataFrame(run_dict)
