@@ -1,40 +1,21 @@
 #!/usr/bin/env python
-##################################################################################################
-# TODO:
-#       - mas de una zona de conteo
-#       - arreglar gráfica de la zona
-#       - ajustar bounding box
-#       - time stamp
-#       - salida csv por cámara cada 15'
-#       - 
-# Con zona pre-seteada y tiempo de ejecución
-##################################################################################################
 
-from termcolor import colored
-from sort import *
 import sys
-import argparse
+import pandas as pd
+from sort import *
+
 from utils.datasets import *
 from utils.utils import *
 from utils.parser import get_config
 from deep_sort import build_tracker
+import cv2
 import torch
-import torchvision.transforms as transforms
-from matplotlib.pyplot import imshow
 
 py_dll_path = os.path.join(sys.exec_prefix, 'Library', 'bin')
 os.environ['PATH'] += py_dll_path
 
-"""
-python detect.py --weights ./weights/yolov5x.pt --img 416 --source .\inference\images\short_video_pedestrian.mp4 --device 0 --deepsort .\config\deep_sort.yaml
-
-python detect.py --weights ./weights/yolov5x.pt --img 416 --source .\inference\images\1.mp4 --device 0 --deepsort .\config\deep_sort.yaml
-
-
-"""
-
 """ 
-__author__ = "Facundo Mercado"
+__author__ = ["Facundo Mercado, Brian Domecq"]
 __base_implementation__ = "https://github.com/lanmengyiyu/yolov5-deepmar"
 __contact__ = "facundomercado@deutschebahn.com"
 __copyright__ = "Copyright 2022, DB Engineering & Consulting Gmbh"
@@ -43,11 +24,10 @@ __deprecated__ = False
 __maintainer__ = "developer"
 __status__ = "development"
 __version__ = "0.0.1"
-__Project__ = Emova
-__Python Version__ = [3.10]
+__Project__ = "Emova Censo"
+__Python__Version__ = [3.10]
 __venv__ = venv-mp
 """
-
 
 class TrackableObject:
     """
@@ -73,8 +53,6 @@ class PolylineDrawing:
     margin_upper = []
     margin_lower = []
     GREEN = (0, 255, 0)
-
-
 
     def __init__(self, img, window_name, axis, margin):
         """
@@ -102,7 +80,6 @@ class PolylineDrawing:
         :parameter y: y-coordinate.
         :parameter flags: callback flags.
         :parameter param: additional kwargs.
-        :parameter axis: approximate axis.
         Mouse callback for left button down events.
         :return:
         """
@@ -123,7 +100,7 @@ class PolylineDrawing:
 
 def detect(source, model, deepsort, output, img_size, threshold, margin,
            iou_threshold, flip_roi_axis, show_axis, fourcc, device,
-           trajectory, view_frame, save_source, save_results, agnostic_nms, augment):
+           trajectory, view_frame, save_source, agnostic_nms, augment):
     """
     Main Detector & Tracker
     :parameter source: Input video.
@@ -134,7 +111,6 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
     :parameter threshold: NN detection threshold.
     :parameter margin: detection margin.
     :parameter iou_threshold: IOU overlap.
-    :parameter roi_position: ROI line position.
     :parameter flip_roi_axis: Whether to flip ROI axis (x to y).
     :parameter show_axis: Show axis line.
     :parameter fourcc: Concerning output video format.
@@ -142,7 +118,6 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
     :parameter trajectory: Whether to display trajectory.
     :parameter view_frame: Whether to display real-time detection.
     :parameter save_source: Whether to save the image.
-    :parameter save_results: Whether to save results.
     :parameter agnostic_nms: Agnostic NMS flag.
     :parameter augment: augment flag.
     :return: void.
@@ -171,43 +146,39 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
 
     vid_path, vid_writer = None, None
 
-    # Loading frames
     dataset = LoadImages(source, img_size=imgsz)
 
     names = model.module.names if hasattr(model, 'module') else model.names
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(32)]
 
+    """
     # Drawing initial ROI\s
     roi_coordinates = None
-    #roi_margin_lower = None
-    #roi_margin_upper = None
+    roi_margin_lower = None
+    roi_margin_upper = None
     for path, img, im0s, vid_cap in dataset:
-        #roi = PolylineDrawing(im0s, 'first', flip_roi_axis, margin)
-        #roi_coordinates = roi.coordinates
-        #roi_margin_lower = roi.margin_lower
-        #roi_margin_upper = roi.margin_upper
-        #roi_coordinates = [(80,154),(410,271)] 
+        roi = PolylineDrawing(im0s, 'first', flip_roi_axis, margin)
+        roi_coordinates = roi.coordinates
+        roi_margin_lower = roi.margin_lower
+        roi_margin_upper = roi.margin_upper
+        roi_coordinates = [(80,154),(410,271)] 
         break
+    """
 
     ###########################################################################
     #ZONA PREDEFINIDA
-    roi_coordinates = [(80,154),(410,271)] 
+    roi_coordinates = [(80, 154), (410, 271)]
     ###########################################################################
 
-    # Trackable object collection
     trackableObjects = {}
     counter = [0, 0, 0, 0]
 
-    #--------------
-    #Agregado CSV
-    #--------------
-    #count = dict()
-    #--------------
-
     # Start Inference
-    t0 = time.time() #processing time
+    t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)
     _ = model(img.half() if half else img) if device.type != device else None
+
+    # Work on every frame
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()
@@ -220,8 +191,8 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
         prediction = model(img, augment=augment)[0]
 
         # Apply NMS
-        prediction = non_max_suppression(prediction, threshold, opt.iou_thr, agnostic=agnostic_nms)
-        t2 = torch_utils.time_synchronized()
+        prediction = non_max_suppression(prediction, threshold, iou_threshold, agnostic=agnostic_nms)
+        torch_utils.time_synchronized()
 
         # Process detections: detections per image.
         for i, det in enumerate(prediction):
@@ -262,17 +233,14 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                         center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
                         trajectory[label].append(center)
 
-
                         # ROI Trespassing logic
-                        to = trackableObjects.get(label, None)                        
+                        to = trackableObjects.get(label, None)
                         if to is None:
-                            to = TrackableObject(label, trajectory[label])    
-
+                            to = TrackableObject(label, trajectory[label])
                         else:
-                            
-                            if flip_roi_axis and not to.counted:                                
+                            if flip_roi_axis and not to.counted:
                                 x = [c[0] for c in to.trajectory]
-                                direction = center[0] - np.mean(x)                                
+                                direction = center[0] - np.mean(x)
 
                                 if any(center[0] > coord for coord in x_circle_roi) \
                                         and any(np.mean(x) < coord for coord in x_circle_roi) and direction > 0:
@@ -284,25 +252,25 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                                     to.counted = True
 
                             elif not flip_roi_axis and not to.counted:
-                                
+
                                 y = [c[1] for c in to.trajectory]
                                 direction = center[1] - np.mean(y)
 
                                 x = [c[0] for c in to.trajectory]
                                 direction_x = center[0] - np.mean(x)
-                                                               
+
                                 if any(center[1] > coord for coord in y_circle_roi)\
                                         and any(np.mean(y) < coord for coord in y_circle_roi)\
                                         and direction > 0:
-                                    
-                                    if center[1] > max(y_circle_roi) and ( center[0] >= min(x_circle_roi) and center[0] <= max(x_circle_roi)): #termine de pasar
-                                    
-                                    #if all(center[1] > coord for coord in y_circle_roi) and (center[0] > min(x_circle_roi) and center[0] < max(x_circle_roi)): #termine de pasar
-                                        counter[3] +=1 #Out
+
+                                    if center[1] > max(y_circle_roi) and ( center[0] >= min(x_circle_roi) and center[0] <= max(x_circle_roi)):
+
+                                    #if all(center[1] > coord for coord in y_circle_roi) and (center[0] > min(x_circle_roi) and center[0] < max(x_circle_roi)):
+                                        counter[3] += 1 #Out
                                         to.counted = True
-                                                                   
+
                                         #count[counter[3]]=[str('Out'),str(source)]
-                                        #count[counter[3]]=[str('Out'), str(source), str(time.strftime('%H:%M:%S', time.localtime()))]                                        
+                                        #count[counter[3]]=[str('Out'), str(source), str(time.strftime('%H:%M:%S', time.localtime()))]
 
                                 elif any(center[1] < coord for coord in y_circle_roi) \
                                         and any(np.mean(y) > coord for coord in y_circle_roi)\
@@ -310,18 +278,15 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                                     #Agregado conteo
                                     #if (center[1] < coord for coord in y_circle_roi): #termine de pasar
                                     if center[1] < min(y_circle_roi) and ( center[0] >= min(x_circle_roi) and center[0] <= max(x_circle_roi)): #termine de pasar
-                            
+
                                         counter[2] +=1
                                         to.counted = True
-                        
+
                                         #count[counter[2]]=[str('In'),str(source)]
                                         #count[counter[2]]=[str('In'),str(source), str(time.strftime('%H:%M:%S', time.localtime()))]
 
-                        
                         to.trajectory.append(center)
                         trackableObjects[label] = to
-                        
-
 
                         # Drawing trajectory
                         for i in range(1, len(trajectory[label])):
@@ -334,22 +299,21 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
 
                         # Drawing the ROI.
                         if show_axis:
-                            
+
                             cv2.polylines(im0, np.array([roi_coordinates]), isClosed=False,
                                           color=(0xFF, 0xD7, 0), thickness=1)
                             #cv2.polylines(im0, np.array([roi_margin_lower]), isClosed=False,
                             #              color=(0xFF, 0xD7, 0), thickness=1)
                             #cv2.polylines(im0, np.array([roi_margin_upper]), isClosed=False,
                             #              color=(0xFF, 0xD7, 0), thickness=1, lineType=8)
-                            
+
                             x_circle_roi = [z[0] for z in roi_coordinates]
                             y_circle_roi = [z[1] for z in roi_coordinates]
                             for (x_c, y_c) in zip(x_circle_roi, y_circle_roi):
                                 cv2.circle(im0, (x_c, y_c), 4, (0xFF, 0xD7, 0), -1)
-                            
+
                             cv2.line(im0, (x_circle_roi[0], y_circle_roi[0]), (x_circle_roi[1], y_circle_roi[0]),color=(0xFF, 0xD7, 0), thickness=1)
                             cv2.line(im0, (x_circle_roi[0], y_circle_roi[1]), (x_circle_roi[1], y_circle_roi[1]),color=(0xFF, 0xD7, 0), thickness=1)
-                            
 
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 if flip_roi_axis:
@@ -362,7 +326,6 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
             #FPS
             #fps = 1./(time.time()-t1)
             #cv2.putText(im0, "FPS: {:.1f}".format(fps), (0,30), 0, 1, (0,0,255), 2)
-
 
             # Showcase results
             if view_frame:
@@ -383,68 +346,39 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
                         fps = vid_cap.get(cv2.CAP_PROP_FPS)
                         w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), fps, (w, h))
+                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
                     vid_writer.write(im0)
 
-    # if save_results:
-    # TODO despues de montar la logica de direccion, emitir un reporte con personas.
+    execution_time = time.time() - t0
+    inflow = counter[2]
+    outflow = counter[3]
 
-    #Tiempo de ejecucion
-    print('Done. (%.3fs)' % (time.time() - t0))
-    print("In: ", counter[2])
-    print("Out: ", counter[3])
+    point_dict = {'ID': '',
+                  'Line': '',
+                  'Station': '',
+                  'Windpass': '',
+                  'Direction': '',
+                  'Is Access': ''}
 
-    #SAVE csv
-    #exp_results(count)
+    flow_dict = {'Execution Time [s]': execution_time,
+                   'Passenger Inflow': inflow,
+                   'Passenger Outflow': outflow}
 
-    point_config_dict = {'ID': '',
-                         'Lina': '',
-                         'Estacion': '',
-                         'Molinete': '',
-                         'Sentido del anden': '',
-                         'Acceso al anden': ''}
+    run_dict = {'Source': source,
+                'Agnostic NMS': agnostic_nms,
+                'Detection Threshold': threshold,
+                'IOU Overlap': iou_threshold,
+                'roi_coordinates': roi_coordinates}
 
-
-"""
-    run_config_dict = {'Source': source,
-                       'Model': model,
-                       'Device': device,
-                       'Tracker': 'Deepsort',
-                       'Agnostic NMS': agnostic_nms,
-                       'Detection Threshold': threshold,
-                       'IOU Overlap': iou_threshold,
-                       'REID_CKPT',
-                       'MAX_DIST',
-                       'MIN_CONFIDENCE',
-                       'ROI Axis': roi_axis,
-                       'ROI Coordinates': roi_coordinates,
-                       'ROI Upper Margin coordinates': ,
-                       'ROI Lower Margin coordinates': ,
-                       'Image Size': img_size,
-                       'Results Location': os.getcwd() + os.sep + out,
-                       'Runtime': ''}
-"""
-
-
-#SALIDA CSV    
-def exp_results(count):
-    f = open ("resultado.csv", "w")
-    #f.write('Personas;Sentido;Time;Source;\n')
-    f.write('Personas;Sentido;Source;\n')
-
-        
-    for x in count.keys():
-        sentido = str(count[x][0]).replace('.',',')
-        source = str(count[x][1]).replace('.',',')
-        #process_time = str(count[x][2]).replace('.',',')
-        
-        f.write( str(x) + ";" + sentido + ';' + source + ";" + "\n" )
-        #f.write( str(x) + ";" + cont_in + ';' + cont_out + ";" + process_time + "\n" )
-            
-    f.close ()
+    point_df = pd.DataFrame(point_dict)
+    flow_df = pd.DataFrame(flow_dict)
+    run_df = pd.DataFrame(run_dict)
+    results_df = pd.concat([point_df, flow_df, run_df], axis="columns")
+    results_df.to_csv(os.path.join(os.getcwd(), 'result.csv'))
 
 
 if __name__ == '__main__':
+    import argparse
 
     parser = argparse.ArgumentParser(description='Object tracker and detector.')
 
@@ -492,9 +426,6 @@ if __name__ == '__main__':
     parser.add_argument('-save_source', '--save_source',
                         default=True, action='store_true', help='Save source.')
 
-    parser.add_argument('-save_results', '--save_results',
-                        default=False, action='store_true', help='Save results to *.txt.')
-
     parser.add_argument('-agn', '--agnostic_nms',
                         action='store_true', help='Class-agnostic NMS.')
 
@@ -508,20 +439,17 @@ if __name__ == '__main__':
     if opt.deepsort:
         cfg = get_config()
         cfg.merge_from_file(opt.deepsort)
-    resize = 224
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
 
-    input_transform = transforms.Compose([
-        transforms.Resize(resize),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std),
-    ])
-
+    frame_failure = 0
     with torch.no_grad():
-        detect(source=opt.source, model=opt.weights, deepsort=opt.deepsort,
-               output=opt.output, img_size=opt.img_size, threshold=opt.detection_thr, margin=opt.margin,
-               iou_threshold=opt.iou_thr, flip_roi_axis=opt.flip_axis,
-               show_axis=opt.show_axis, device=opt.device, trajectory=opt.trajectory,
-               fourcc=opt.fourcc, view_frame=opt.view_frame, save_source=opt.save_source,
-               save_results=opt.save_results, agnostic_nms=opt.agnostic_nms, augment=opt.augment)
+        try:
+            detect(source=opt.source, model=opt.weights, deepsort=opt.deepsort,
+                output=opt.output, img_size=opt.img_size, threshold=opt.detection_thr, margin=opt.margin,
+                iou_threshold=opt.iou_thr, flip_roi_axis=opt.flip_axis,
+                show_axis=opt.show_axis, device=opt.device, trajectory=opt.trajectory,
+                fourcc=opt.fourcc, view_frame=opt.view_frame, save_source=opt.save_source,
+                agnostic_nms=opt.agnostic_nms, augment=opt.augment)
+        except Exception as exp:
+            frame_failure += 1
+            pass
+
