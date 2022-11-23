@@ -3,6 +3,7 @@
 import sys
 import pandas as pd
 from sort import *
+import logging
 
 from utils.datasets import *
 from utils.utils import *
@@ -28,6 +29,10 @@ __Project__ = "Emova Censo"
 __Python__Version__ = [3.10]
 __venv__ = venv-mp
 """
+
+logging.basicConfig(filename='/tmp/execution.log', level=logging.DEBUG,
+                    format='%(asctime)s %(levelname)s %(name)s %(message)s')
+logger=logging.getLogger(__name__)
 
 class TrackableObject:
     """
@@ -187,183 +192,187 @@ def detect(source, model, deepsort, output, img_size, threshold, margin,
     # Work on every frame
     for path, img, im0s, vid_cap in dataset:
 
-        fps = vid_cap.get(cv2.CAP_PROP_FPS)
-        frames_to_push = 15*60*fps
+        try:
+            fps = vid_cap.get(cv2.CAP_PROP_FPS)
+            frames_to_push = 15*60*fps
 
-        if frames_to_push > dataset.nframes:
-            print("Cannot reach the 15 minute push interval.")
+            if frames_to_push > dataset.nframes:
+                print("Cannot reach the 15 minute push interval.")
 
-        img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()
-        img /= 255.0
-        if img.ndimension() == 3:
-            img = img.unsqueeze(0)
+            img = torch.from_numpy(img).to(device)
+            img = img.half() if half else img.float()
+            img /= 255.0
+            if img.ndimension() == 3:
+                img = img.unsqueeze(0)
 
-        # Execute inference
-        t1 = torch_utils.time_synchronized()
-        prediction = model(img, augment=augment)[0]
+            # Execute inference
+            t1 = torch_utils.time_synchronized()
+            prediction = model(img, augment=augment)[0]
 
-        # Apply NMS
-        prediction = non_max_suppression(prediction, threshold, iou_threshold, agnostic=agnostic_nms)
-        torch_utils.time_synchronized()
+            # Apply NMS
+            prediction = non_max_suppression(prediction, threshold, iou_threshold, agnostic=agnostic_nms)
+            torch_utils.time_synchronized()
 
-        # Process detections: detections per image.
-        for i, det in enumerate(prediction):
-            p, s, im0 = path, '', im0s
+            # Process detections: detections per image.
+            for i, det in enumerate(prediction):
+                p, s, im0 = path, '', im0s
 
-            save_path = str(Path(out) / Path(p).name)
-            s += '%gx%g ' % img.shape[2:]
-            if det is not None and len(det):
-                # Rescale bounding boxes.
-                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+                save_path = str(Path(out) / Path(p).name)
+                s += '%gx%g ' % img.shape[2:]
+                if det is not None and len(det):
+                    # Rescale bounding boxes.
+                    det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    s += '%g %ss, ' % (n, names[int(c)])
+                    for c in det[:, -1].unique():
+                        n = (det[:, -1] == c).sum()  # detections per class
+                        s += '%g %ss, ' % (n, names[int(c)])
 
-                if opt.deepsort:
-                    track_det = [elem[:4].tolist() for elem in det if elem[5] == 0]
-                    track_det_xywh = xyxy2xywh(np.array(track_det))
-                    cls_conf = [elem[4].tolist() for elem in det if elem[5] == 0]
-                    track_bbs_ids = mot_tracker.update(track_det_xywh, cls_conf, im0)
-                else:
-                    track_det = [elem[:5].tolist() for elem in det if elem[5] == 0]
-                    track_det = np.array(track_det)
-                    track_bbs_ids = mot_tracker.update(track_det)
+                    if opt.deepsort:
+                        track_det = [elem[:4].tolist() for elem in det if elem[5] == 0]
+                        track_det_xywh = xyxy2xywh(np.array(track_det))
+                        cls_conf = [elem[4].tolist() for elem in det if elem[5] == 0]
+                        track_bbs_ids = mot_tracker.update(track_det_xywh, cls_conf, im0)
+                    else:
+                        track_det = [elem[:5].tolist() for elem in det if elem[5] == 0]
+                        track_det = np.array(track_det)
+                        track_bbs_ids = mot_tracker.update(track_det)
 
-                # Normalized and non-normalized bounding box coordinates.
-                for *xyxy, pid in track_bbs_ids:
-                    # Annotate frames with their bounding boxes
-                    if save_source or view_frame:
-                        label = '%d' % pid
+                    # Normalized and non-normalized bounding box coordinates.
+                    for *xyxy, pid in track_bbs_ids:
+                        # Annotate frames with their bounding boxes
+                        if save_source or view_frame:
+                            label = '%d' % pid
 
-                        if label not in trajectory:
-                            trajectory[label] = []
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(label) % 32], line_thickness=1)
-                        height, width, _ = im0.shape
-                        x1, y1, x2, y2 = max(0, int(xyxy[0])), max(0, int(xyxy[1])), \
-                                         min(width, int(xyxy[2])), min(height, int(xyxy[3]))
-                        center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
-                        trajectory[label].append(center)
+                            if label not in trajectory:
+                                trajectory[label] = []
+                            plot_one_box(xyxy, im0, label=label, color=colors[int(label) % 32], line_thickness=1)
+                            height, width, _ = im0.shape
+                            x1, y1, x2, y2 = max(0, int(xyxy[0])), max(0, int(xyxy[1])), \
+                                             min(width, int(xyxy[2])), min(height, int(xyxy[3]))
+                            center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+                            trajectory[label].append(center)
 
-                        # ROI Trespassing logic
-                        to = trackableObjects.get(label, None)
-                        if to is None:
-                            to = TrackableObject(label, trajectory[label])
-                        else:
-                            if flip_roi_axis and not to.counted:
-                                x = [c[0] for c in to.trajectory]
-                                direction = center[0] - np.mean(x)
+                            # ROI Trespassing logic
+                            to = trackableObjects.get(label, None)
+                            if to is None:
+                                to = TrackableObject(label, trajectory[label])
+                            else:
+                                if flip_roi_axis and not to.counted:
+                                    x = [c[0] for c in to.trajectory]
+                                    direction = center[0] - np.mean(x)
 
-                                if any(center[0] > coord for coord in x_circle_roi) \
-                                        and any(np.mean(x) < coord for coord in x_circle_roi) and direction > 0:
-                                    counter[1] += 1
-                                    to.counted = True
-                                elif any(center[0] < coord for coord in x_circle_roi) \
-                                        and any(np.mean(x) > coord for coord in x_circle_roi) and direction < 0:
-                                    counter[0] += 1
-                                    to.counted = True
-
-                            elif not flip_roi_axis and not to.counted:
-
-                                y = [c[1] for c in to.trajectory]
-                                direction = center[1] - np.mean(y)
-
-                                x = [c[0] for c in to.trajectory]
-                                direction_x = center[0] - np.mean(x)
-
-                                if any(center[1] > coord for coord in y_circle_roi)\
-                                        and any(np.mean(y) < coord for coord in y_circle_roi)\
-                                        and direction > 0:
-
-                                    if center[1] > max(y_circle_roi) and ( center[0] >= min(x_circle_roi) and center[0] <= max(x_circle_roi)):
-
-                                    #if all(center[1] > coord for coord in y_circle_roi) and (center[0] > min(x_circle_roi) and center[0] < max(x_circle_roi)):
-                                        counter[3] += 1 #Out
+                                    if any(center[0] > coord for coord in x_circle_roi) \
+                                            and any(np.mean(x) < coord for coord in x_circle_roi) and direction > 0:
+                                        counter[1] += 1
+                                        to.counted = True
+                                    elif any(center[0] < coord for coord in x_circle_roi) \
+                                            and any(np.mean(x) > coord for coord in x_circle_roi) and direction < 0:
+                                        counter[0] += 1
                                         to.counted = True
 
-                                        #count[counter[3]]=[str('Out'),str(source)]
-                                        #count[counter[3]]=[str('Out'), str(source), str(time.strftime('%H:%M:%S', time.localtime()))]
+                                elif not flip_roi_axis and not to.counted:
 
-                                elif any(center[1] < coord for coord in y_circle_roi) \
-                                        and any(np.mean(y) > coord for coord in y_circle_roi)\
-                                        and direction < 0:
-                                    #Agregado conteo
-                                    #if (center[1] < coord for coord in y_circle_roi): #termine de pasar
-                                    if center[1] < min(y_circle_roi) and ( center[0] >= min(x_circle_roi) and center[0] <= max(x_circle_roi)): #termine de pasar
+                                    y = [c[1] for c in to.trajectory]
+                                    direction = center[1] - np.mean(y)
 
-                                        counter[2] +=1
-                                        to.counted = True
+                                    x = [c[0] for c in to.trajectory]
+                                    direction_x = center[0] - np.mean(x)
 
-                                        #count[counter[2]]=[str('In'),str(source)]
-                                        #count[counter[2]]=[str('In'),str(source), str(time.strftime('%H:%M:%S', time.localtime()))]
+                                    if any(center[1] > coord for coord in y_circle_roi)\
+                                            and any(np.mean(y) < coord for coord in y_circle_roi)\
+                                            and direction > 0:
 
-                        to.trajectory.append(center)
-                        trackableObjects[label] = to
+                                        if center[1] > max(y_circle_roi) and ( center[0] >= min(x_circle_roi) and center[0] <= max(x_circle_roi)):
 
-                        # Drawing trajectory
-                        for i in range(1, len(trajectory[label])):
-                            if trajectory[label][i - 1] is None or trajectory[label][i] is None:
-                                continue
-                            if trajectory_flag:
-                                cv2.arrowedLine(im0, trajectory[label][i - 1], trajectory[label][i],
-                                                colors[int(label) % 32], 1, tipLength=0.8)
-                                cv2.circle(im0, (center[0], center[1]), 2, colors[int(label) % 32], -1)
+                                        #if all(center[1] > coord for coord in y_circle_roi) and (center[0] > min(x_circle_roi) and center[0] < max(x_circle_roi)):
+                                            counter[3] += 1 #Out
+                                            to.counted = True
 
-                        # Drawing the ROI.
-                        if show_axis:
+                                            #count[counter[3]]=[str('Out'),str(source)]
+                                            #count[counter[3]]=[str('Out'), str(source), str(time.strftime('%H:%M:%S', time.localtime()))]
 
-                            cv2.polylines(im0, np.array([roi_coordinates]), isClosed=False,
-                                          color=(0xFF, 0xD7, 0), thickness=1)
-                            #cv2.polylines(im0, np.array([roi_margin_lower]), isClosed=False,
-                            #              color=(0xFF, 0xD7, 0), thickness=1)
-                            #cv2.polylines(im0, np.array([roi_margin_upper]), isClosed=False,
-                            #              color=(0xFF, 0xD7, 0), thickness=1, lineType=8)
+                                    elif any(center[1] < coord for coord in y_circle_roi) \
+                                            and any(np.mean(y) > coord for coord in y_circle_roi)\
+                                            and direction < 0:
+                                        #Agregado conteo
+                                        #if (center[1] < coord for coord in y_circle_roi): #termine de pasar
+                                        if center[1] < min(y_circle_roi) and ( center[0] >= min(x_circle_roi) and center[0] <= max(x_circle_roi)): #termine de pasar
 
-                            x_circle_roi = [z[0] for z in roi_coordinates]
-                            y_circle_roi = [z[1] for z in roi_coordinates]
-                            for (x_c, y_c) in zip(x_circle_roi, y_circle_roi):
-                                cv2.circle(im0, (x_c, y_c), 4, (0xFF, 0xD7, 0), -1)
+                                            counter[2] +=1
+                                            to.counted = True
 
-                            cv2.line(im0, (x_circle_roi[0], y_circle_roi[0]), (x_circle_roi[1], y_circle_roi[0]),color=(0xFF, 0xD7, 0), thickness=1)
-                            cv2.line(im0, (x_circle_roi[0], y_circle_roi[1]), (x_circle_roi[1], y_circle_roi[1]),color=(0xFF, 0xD7, 0), thickness=1)
+                                            #count[counter[2]]=[str('In'),str(source)]
+                                            #count[counter[2]]=[str('In'),str(source), str(time.strftime('%H:%M:%S', time.localtime()))]
 
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                if flip_roi_axis:
-                    cv2.putText(im0, f'(out): {counter[0]} | (in): {counter[1]}', (
-                        10, 50), font, 0.5, (0xFF, 0xD7, 0), 2, cv2.FONT_HERSHEY_SIMPLEX)
-                else:
-                    cv2.putText(im0, f'(out): {counter[2]} | (in): {counter[3]}', (
-                        10, 50), font, 0.5, (0xFF, 0xD7, 0), 2, cv2.FONT_HERSHEY_SIMPLEX)
+                            to.trajectory.append(center)
+                            trackableObjects[label] = to
 
-            # Store partial results
-            if dataset.frame % frames_to_push == 0:
-                inflow = counter[2]
-                outflow = counter[3]
-                flow_dict['Passenger Inflow'].append(inflow)
-                flow_dict['Passenger Outflow'].append(outflow)
+                            # Drawing trajectory
+                            for i in range(1, len(trajectory[label])):
+                                if trajectory[label][i - 1] is None or trajectory[label][i] is None:
+                                    continue
+                                if trajectory_flag:
+                                    cv2.arrowedLine(im0, trajectory[label][i - 1], trajectory[label][i],
+                                                    colors[int(label) % 32], 1, tipLength=0.8)
+                                    cv2.circle(im0, (center[0], center[1]), 2, colors[int(label) % 32], -1)
 
-            # Showcase results
-            if view_frame:
-                cv2.imshow(p, im0)
-                if cv2.waitKey(1) == ord('q'):
-                    raise StopIteration
+                            # Drawing the ROI.
+                            if show_axis:
 
-            # Store image with detections
-            if save_source:
-                if dataset.mode == 'images':
-                    cv2.imwrite(save_path, im0)
-                else:
-                    if vid_path != save_path:
-                        vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
-                            vid_writer.release()
+                                cv2.polylines(im0, np.array([roi_coordinates]), isClosed=False,
+                                              color=(0xFF, 0xD7, 0), thickness=1)
+                                #cv2.polylines(im0, np.array([roi_margin_lower]), isClosed=False,
+                                #              color=(0xFF, 0xD7, 0), thickness=1)
+                                #cv2.polylines(im0, np.array([roi_margin_upper]), isClosed=False,
+                                #              color=(0xFF, 0xD7, 0), thickness=1, lineType=8)
 
-                        fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                        w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
-                    vid_writer.write(im0)
+                                x_circle_roi = [z[0] for z in roi_coordinates]
+                                y_circle_roi = [z[1] for z in roi_coordinates]
+                                for (x_c, y_c) in zip(x_circle_roi, y_circle_roi):
+                                    cv2.circle(im0, (x_c, y_c), 4, (0xFF, 0xD7, 0), -1)
+
+                                cv2.line(im0, (x_circle_roi[0], y_circle_roi[0]), (x_circle_roi[1], y_circle_roi[0]),color=(0xFF, 0xD7, 0), thickness=1)
+                                cv2.line(im0, (x_circle_roi[0], y_circle_roi[1]), (x_circle_roi[1], y_circle_roi[1]),color=(0xFF, 0xD7, 0), thickness=1)
+
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    if flip_roi_axis:
+                        cv2.putText(im0, f'(out): {counter[0]} | (in): {counter[1]}', (
+                            10, 50), font, 0.5, (0xFF, 0xD7, 0), 2, cv2.FONT_HERSHEY_SIMPLEX)
+                    else:
+                        cv2.putText(im0, f'(out): {counter[2]} | (in): {counter[3]}', (
+                            10, 50), font, 0.5, (0xFF, 0xD7, 0), 2, cv2.FONT_HERSHEY_SIMPLEX)
+
+                # Store partial results
+                if dataset.frame % frames_to_push == 0:
+                    inflow = counter[2]
+                    outflow = counter[3]
+                    flow_dict['Passenger Inflow'].append(inflow)
+                    flow_dict['Passenger Outflow'].append(outflow)
+
+                # Showcase results
+                if view_frame:
+                    cv2.imshow(p, im0)
+                    if cv2.waitKey(1) == ord('q'):
+                        raise StopIteration
+
+                # Store image with detections
+                if save_source:
+                    if dataset.mode == 'images':
+                        cv2.imwrite(save_path, im0)
+                    else:
+                        if vid_path != save_path:
+                            vid_path = save_path
+                            if isinstance(vid_writer, cv2.VideoWriter):
+                                vid_writer.release()
+
+                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
+                        vid_writer.write(im0)
+        except Exception as e:
+            logger.error(e)
+            continue
 
     execution_time = time.time() - t0
 
@@ -452,16 +461,12 @@ if __name__ == '__main__':
         cfg = get_config()
         cfg.merge_from_file(opt.deepsort)
 
-    frame_failure = 0
     with torch.no_grad():
-        try:
-            detect(source=opt.source, model=opt.weights, deepsort=opt.deepsort,
-                output=opt.output, img_size=opt.img_size, threshold=opt.detection_thr, margin=opt.margin,
-                iou_threshold=opt.iou_thr, flip_roi_axis=opt.flip_axis,
-                show_axis=opt.show_axis, device=opt.device, trajectory=opt.trajectory,
-                fourcc=opt.fourcc, view_frame=opt.view_frame, save_source=opt.save_source,
-                agnostic_nms=opt.agnostic_nms, augment=opt.augment)
-        except Exception as exp:
-            frame_failure += 1
-            pass
+        detect(source=opt.source, model=opt.weights, deepsort=opt.deepsort,
+            output=opt.output, img_size=opt.img_size, threshold=opt.detection_thr, margin=opt.margin,
+            iou_threshold=opt.iou_thr, flip_roi_axis=opt.flip_axis,
+            show_axis=opt.show_axis, device=opt.device, trajectory=opt.trajectory,
+            fourcc=opt.fourcc, view_frame=opt.view_frame, save_source=opt.save_source,
+            agnostic_nms=opt.agnostic_nms, augment=opt.augment)
+
 
